@@ -1,8 +1,8 @@
 #include "mpc.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <editline/readline.h>
-#include <editline/history.h>
+#include <editline/readline.h> // gives us readline()
+#include <editline/history.h> // gives us add_history()
 
 int main(int argc, char** argv) {
 	(void)argc;
@@ -29,9 +29,27 @@ int main(int argc, char** argv) {
 	puts("Press ctrl-c to Exit\n");
 
 	while (1) {
+		// use readline to prompt the user for input
 		char* input = readline("$ ");
+		// record the user's input in history so that they can navigate to previously entered commands with arrow keys
 		add_history(input);
-		printf("%s\n", input);
+		
+		/* Parse User Input */
+		// initialize new result variable r
+		mpc_result_t r;
+		// call mpc_parse, passing in the user input, our parser Lispy, and a pointer to the result variable r
+		if (mpc_parse("<stdin>", input, Lispy, &r)) {
+			// if successful, an internal structure is copied into r's output field
+			/* On Success Print the AST */
+			mpc_ast_print(r.output); // we can print out the structure with this command
+			mpc_ast_delete(r.output); // then we delete it with this command
+		} else {
+			// if not mpc_parse is not successful, an error is copied into r's error field
+			/* Otherwise Print the Error */
+			mpc_err_print(r.error); // we print out the error
+			mpc_err_delete(r.error); // we delete the error
+		}
+		// we free up the memory allocated to the user input
 		free(input);
 	}
 	
