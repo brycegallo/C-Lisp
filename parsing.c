@@ -74,7 +74,9 @@ int main(int argc, char** argv) {
 		if (mpc_parse("<stdin>", input, Lispy, &r)) {
 			// if successful, an internal structure is copied into r's output field
 			/* On Success Print the AST */
-			mpc_ast_print(r.output); // we can print out the structure with this command
+			// mpc_ast_print(r.output); // we can print out the structure with this command
+			long result = eval(r.output);
+			printf("%li\n", result);
 			mpc_ast_delete(r.output); // then we delete it with this command
 		} else {
 			// if not mpc_parse is not successful, an error is copied into r's error field
