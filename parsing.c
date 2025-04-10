@@ -26,7 +26,7 @@ lval lval_num(long x) {
     return v;
 }
 
-// Create a new rror of type lval
+// Create a new error of type lval
 lval lval_err(int x) {
     lval v;
     v.type = LVAL_ERR;
@@ -55,25 +55,38 @@ void lval_println(lval v) {
 }
 
 // This function will use strcmp to check which operator to use
-long eval_op(long x, char* op, long y) {
-    if (strcmp(op, "+") == 0) { return x + y; }
-    if (strcmp(op, "-") == 0) { return x - y; }
-    if (strcmp(op, "*") == 0) { return x * y; }
-    if (strcmp(op, "/") == 0) { return x / y; }
-    return 0;
+lval eval_op(lval x, char* op, lval y) {
+    // If either operand's type value is an error, return it immediately
+    if (x.type == LVAL_ERR) { return x; }
+    if (y.type == LVAL_ERR) { return y; }
+
+    // Otherwise, operate on the operands
+    if (strcmp(op, "+") == 0) { return lval_num(x.num + y.num); }
+    if (strcmp(op, "-") == 0) { return lval_num(x.num - y.num); }
+    if (strcmp(op, "*") == 0) { return lval_num(x.num * y.num); }
+    if (strcmp(op, "/") == 0) {
+	// Return error if second operand is zero
+	return y.num == 0
+	    ? lval_err(LERR_DIV_ZERO)
+	    : lval_num(x.num / y.num);
+    }
+    return lval_err(LERR_BAD_OP);
 }
 
 // This function will use strstr to check if a tag contains some substring
-long eval(mpc_ast_t* t) {
-    //If tagged as a number, return it directy
+lval eval(mpc_ast_t* t) {
+    // If tagged as a number, return it directly, also check for errors in conversion
     if (strstr(t->tag, "number")) {
-	return atoi(t->contents);
+	errno = 0;
+	long x = strtol(t->contents, NULL, 10);
+	return errno != ERANGE ? lval_num(x) : lval_err(LERR_BAD_NUM);
     }
     
     // The operator is always a second child
     char* op = t->children[1]->contents;
     // we store the third child in 'x'
-    long x = eval(t->children[2]);
+    lval x = eval(t->children[2]);
+    
     // Iterate the remaining children and combine
     int i = 3;
     while (strstr(t->children[i]->tag, "expr")) {
@@ -121,8 +134,8 @@ int main(int argc, char** argv) {
 	    // if successful, an internal structure is copied into r's output field
 	    /* On Success Print the AST */
 	    // mpc_ast_print(r.output); // we can print out the structure with this command
-	    long result = eval(r.output);
-	    printf("%li\n", result);
+	    lval result = eval(r.output);
+	    lval_println(result);
 	    mpc_ast_delete(r.output); // then we delete it with this command
 	} else {
 	    // if not mpc_parse is not successful, an error is copied into r's error field
