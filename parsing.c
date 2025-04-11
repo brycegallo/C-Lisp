@@ -9,30 +9,87 @@
 typedef struct {
     int type; // will be represented by a single integer for simple matching
     long num;
-    int err;
+    // Error and Symbol types have some string data 
+    char* err;
+    char* sym;
+    // Count and Pointer to a list of lval*s
+    int count;
+    // S-Expressions are variable-length lists of other values. Since we can't create variable-length structs, we're going to create a pointer field "cell" which points to a location where we store a list of of lval*s, which are pointers to other individual lvals. our field should be a double pointer of type lval** (a pointer to pointers). We'll use "count" to keep track of how many lval*s are in the list
+    struct lval** cell;
 } lval;
 
-// Enumeration of possible lval types
-enum { LVAL_NUM, LVAL_ERR };
+/*** enums ***/
+
+// Enumeration of possible S-Expression lval types
+enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR };
 
 // Enumeration of possible error types
 enum { LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM };
 
-// Create a new number of type lval
-lval lval_num(long x) {
-    lval v;
-    v.type = LVAL_NUM;
-    v.num = x;
+/*** structs ***/
+
+// We have changed our lval construction functions to return pointers to an lval, rather than return an lval directly, to make keeping track of lvals easier. Now to make this work we need to use malloc with the sizeof() function to allocate enough space for the lval struct, and then fill in the fields with the relevant information using the arrow operator
+
+// Construct a pointer to a new number of type lval
+lval* lval_num(long x) {
+    lval* v = malloc(sizeof(lval));
+    v->type = LVAL_NUM;
+    v->num = x;
     return v;
 }
 
-// Create a new error of type lval
-lval lval_err(int x) {
-    lval v;
-    v.type = LVAL_ERR;
-    v.err = x;
+// Construct a pointer to a new error of type lval
+lval* lval_err(char* m) {
+    lval* v = malloc(sizeof(lval));
+    v->type = LVAL_ERR;
+    v->err = malloc(strlen(m) + 1); // we use strlen() + 1 because strings in C are null-terminated, always having their final character as the zero character '\0'. it's crucial to have all strings stored this way in C. strlen() only returns the number of bytes in a string excluding the null-terminator, which is why we need to add one when memory-allocating space for a string
+    strcpy(v->err, m);
     return v;
 }
+
+// Construct a pointer to a new Symbol of type lval
+lval* lval_sym(char* s) {
+    lval* v = malloc(sizeof(lval));
+    v->type = LVAL_SYM;
+    v->sym = malloc(strlen(s) + 1);
+    strcpy(v->sym, s);
+    return v;
+}
+
+// Construct a pointer to a new empty Sexpr lval
+lval* lval_sexpr(void) {
+    lval* v = malloc(sizeof(lval));
+    v->type = LVAL_SEXPR;
+    v->count = 0;
+    v->cell = NULL; // here NULL specifies that we have a data pointer that doesn't point to any number of data items
+    return v;
+}
+
+// This function will delete an lval*, first inspecting the type, then releasing any memory pointed to by its fields by calling free(). it's important to match every call to one of the above functions with lval_del to ensure we have no memory leaks
+void lval_del(lval* v) {
+    switch(v->tpe) {
+	// Number type lvals need no special free() calls
+	case LVAL_NUM: break;
+	
+	// We must free the string data for Error and Symbol types
+	case LVAL_ERR: free(v->err); break;
+	case LVAL_SYM: free(v->sym); break;
+
+	// We must delete all the elements inside an S-Expression type
+	case LVAL_SEXPR:
+		       // We iterate over the Cell and call lval_del() on each element
+		       for (int i = 0; i < v->count; i++) {
+			   lval_del(v->cell[i]);
+		       }
+		       // We also free the memory allocated to contain the pointers
+		       free(v->cell);
+	break;
+    }
+    // Lastly, we free the memory allocated for the lval struct itself
+    free(v);
+}
+
+/*** lval functions ***/
 
 // Print an lval by using a switch statement to determine the printing behavior based on whether the lval being printed has a type of number or error
 void lval_print(lval v) {
@@ -97,8 +154,8 @@ lval eval(mpc_ast_t* t) {
 }
 
 int main(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    (void)argc; // avoid warnings about unused parameters
+    (void)argv; // avoid warnings about unused parameters
     
     /* Parsers */
     mpc_parser_t* Number = mpc_new("number");
