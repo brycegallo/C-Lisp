@@ -6,7 +6,7 @@
 
 // Declare new lval struct
 // In our program any expression will evaluate to either a number or an error, so we want to define a data structure that can be either, to make it easier to return the result to the user
-typedef struct {
+typedef struct lval {
     int type; // will be represented by a single integer for simple matching
     long num;
     // Error and Symbol types have some string data 
@@ -25,6 +25,9 @@ enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR };
 
 // Enumeration of possible error types
 enum { LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM };
+
+/*** function declarations ***/
+void lval_print(lval* v);
 
 /*** structs ***/
 
@@ -67,7 +70,7 @@ lval* lval_sexpr(void) {
 
 // This function will delete an lval*, first inspecting the type, then releasing any memory pointed to by its fields by calling free(). it's important to match every call to one of the above functions with lval_del to ensure we have no memory leaks
 void lval_del(lval* v) {
-    switch(v->tpe) {
+    switch(v->type) {
 	// Number type lvals need no special free() calls
 	case LVAL_NUM: break;
 	
@@ -91,67 +94,58 @@ void lval_del(lval* v) {
 
 /*** lval functions ***/
 
-// Print an lval by using a switch statement to determine the printing behavior based on whether the lval being printed has a type of number or error
-void lval_print(lval v) {
-    switch(v.type) {
-	// if the type is a number, print it and break out of the switch
-	case LVAL_NUM: printf("%li", v.num); break;
-	// if the type is an error, check which type it is and print response
-	case LVAL_ERR:
-		       if (v.err == LERR_DIV_ZERO) { printf("Error: Division by Zero"); }
-		       if (v.err == LERR_BAD_OP) { printf("Error: Invalid Operator"); }
-		       if (v.err == LERR_BAD_NUM) { printf("Error: Invalid Number"); }
-	break;
-    }
+lval* lval_add(lval* v, lval* x) {
+    v->count++;
+    v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+    v->cell[v->count-1] = x;
+    return v;
 }
 
-// print an lval followed by a newline
-void lval_println(lval v) {
-    lval_print(v);
-    putchar('\n');
+lval* lval_read_num(mpc_ast_t* t) {
+    errno = 0;
+    long x = strtol(t->contents, NULL, 10);
+    return errno != ERANGE ? lval_num(x) : lval_err("invalid number");
 }
 
-// This function will use strcmp to check which operator to use
-lval eval_op(lval x, char* op, lval y) {
-    // If either operand's type value is an error, return it immediately
-    if (x.type == LVAL_ERR) { return x; }
-    if (y.type == LVAL_ERR) { return y; }
+lval* lval_read(mpc_ast_t* t) {
+    if (strstr(t->tag, "number")) { return       lval_read_num(t); }
+    if (strstr(t->tag, "symbol")) { return  lval_sym(t->contents); }
 
-    // Otherwise, operate on the operands
-    if (strcmp(op, "+") == 0) { return lval_num(x.num + y.num); }
-    if (strcmp(op, "-") == 0) { return lval_num(x.num - y.num); }
-    if (strcmp(op, "*") == 0) { return lval_num(x.num * y.num); }
-    if (strcmp(op, "/") == 0) {
-	// Return error if second operand is zero
-	return y.num == 0
-	    ? lval_err(LERR_DIV_ZERO)
-	    : lval_num(x.num / y.num);
-    }
-    return lval_err(LERR_BAD_OP);
-}
+    lval* x = NULL;
+    if (strcmp(t->tag, ">") == 0) { x = lval_sexpr(); }
+    if (strcmp(t->tag, "sexpr"))  { x = lval_sexpr(); }
 
-// This function will use strstr to check if a tag contains some substring
-lval eval(mpc_ast_t* t) {
-    // If tagged as a number, return it directly, also check for errors in conversion
-    if (strstr(t->tag, "number")) {
-	errno = 0;
-	long x = strtol(t->contents, NULL, 10);
-	return errno != ERANGE ? lval_num(x) : lval_err(LERR_BAD_NUM);
-    }
-    
-    // The operator is always a second child
-    char* op = t->children[1]->contents;
-    // we store the third child in 'x'
-    lval x = eval(t->children[2]);
-    
-    // Iterate the remaining children and combine
-    int i = 3;
-    while (strstr(t->children[i]->tag, "expr")) {
-	x = eval_op(x, op, eval(t->children[i]));
-	i++;
+    for (int i = 0; i < t->children_num; i++) {
+	if (strcmp(t->children[i]->contents, "(") == 0) { continue; }
+	if (strcmp(t->children[i]->contents, ")") == 0) { continue; }
+	if (strcmp(t->children[i]->tag,  "regex") == 0) { continue; }
+	x = lval_add(x, lval_read(t->children[i]));
     }
     return x;
 }
+
+
+void lval_expr_print(lval* v, char open, char close) {
+    putchar(open);
+    for (int i = 0; i < v->count; i++) {
+	lval_print(v->cell[i]);
+	if (i != (v->count-1)) {
+	    putchar(' ');
+	}
+    }
+    putchar(close);
+}
+
+void lval_print(lval* v) {
+    switch (v->type) {
+	case LVAL_NUM:   printf("%li",        v->num); break;
+	case LVAL_ERR:   printf("Error: %s",  v->err); break;
+	case LVAL_SYM:   printf("%s",         v->sym); break;
+	case LVAL_SEXPR: lval_expr_print(v, '(', ')'); break;
+    }
+}
+
+void lval_println(lval* v) { lval_print(v); putchar('\n'); }
 
 int main(int argc, char** argv) {
     (void)argc; // avoid warnings about unused parameters
@@ -167,11 +161,11 @@ int main(int argc, char** argv) {
     /* Language */
     mpca_lang(MPCA_LANG_DEFAULT,
 	    "								\
-	    number	: /-?[0-9]+/ ;					\
-	    symbol	: '+' | '-' | '*' | '/' ;			\
-	    sexpr	: '(' <expr>* ')' ;				\
-	    expr	: <number> |  <symbol> <sexpr> ;		\
-	    lispy	: /^/ <expr>* /$/ ;			\
+	    number	: /-?[0-9]+/			;		\
+	    symbol	: '+' | '-' | '*' | '/' 	;		\
+	    sexpr	: '(' <expr>* ')'		;		\
+	    expr	: <number> |  <symbol> <sexpr> 	;		\
+	    lispy	: /^/ <expr>* /$/ 		;		\
 	    ",
 	    Number, Symbol, Sexpr, Expr, Lispy);
     
@@ -193,9 +187,9 @@ int main(int argc, char** argv) {
 	    // if successful, an internal structure is copied into r's output field
 	    /* On Success Print the AST */
 	    // mpc_ast_print(r.output); // we can print out the structure with this command
-	    lval result = eval(r.output);
-	    lval_println(result);
-	    mpc_ast_delete(r.output); // then we delete it with this command
+	    lval* x = lval_read(r.output);
+	    lval_println(x);
+	    lval_del(x);
 	} else {
 	    // if not mpc_parse is not successful, an error is copied into r's error field
 	    /* Otherwise Print the Error */
