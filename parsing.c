@@ -27,6 +27,8 @@ enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR };
 enum { LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM };
 
 /*** function declarations ***/
+
+// function declaration for lval_print, because lval_print and lval_expr_print call each other
 void lval_print(lval* v);
 
 /*** structs ***/
@@ -108,13 +110,16 @@ lval* lval_read_num(mpc_ast_t* t) {
 }
 
 lval* lval_read(mpc_ast_t* t) {
+    // If Symbol or Number, return conversion to that type
     if (strstr(t->tag, "number")) { return       lval_read_num(t); }
     if (strstr(t->tag, "symbol")) { return  lval_sym(t->contents); }
 
+    // If root (>) or S-Expression, then create empty list
     lval* x = NULL;
     if (strcmp(t->tag, ">") == 0) { x = lval_sexpr(); }
     if (strcmp(t->tag, "sexpr"))  { x = lval_sexpr(); }
 
+    // Fill this list with any valid expression contained within
     for (int i = 0; i < t->children_num; i++) {
 	if (strcmp(t->children[i]->contents, "(") == 0) { continue; }
 	if (strcmp(t->children[i]->contents, ")") == 0) { continue; }
@@ -124,11 +129,13 @@ lval* lval_read(mpc_ast_t* t) {
     return x;
 }
 
-
+// This loops over all sub-sexpressions of an expression and prints them out individually, separated by spaces the same way that the user entered them as input
 void lval_expr_print(lval* v, char open, char close) {
     putchar(open);
     for (int i = 0; i < v->count; i++) {
+	// Print value contained within cell
 	lval_print(v->cell[i]);
+	// Check if this element will be the last one, and if so, don't print a trailing space
 	if (i != (v->count-1)) {
 	    putchar(' ');
 	}
