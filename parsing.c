@@ -28,8 +28,11 @@ enum { LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM };
 
 /*** function declarations ***/
 
-// function declaration for lval_print, because lval_print and lval_expr_print call each other
+// function declaration for lval_print(), because lval_print() and lval_expr_print() call each other
 void lval_print(lval* v);
+
+// function declaration for lval_eval(), because lval_eval() and lval_eval_sexpr() call each other
+lval* lval_eval(lval* v);
 
 /*** structs ***/
 
@@ -154,6 +157,106 @@ void lval_print(lval* v) {
 
 void lval_println(lval* v) { lval_print(v); putchar('\n'); }
 
+// This function extracts a single element from an S-Expression at index 1 and shifts the rest of the list so it no longer contains that lval*. It then returns the extracted value
+lval* lval_pop(lval* v, int i) {
+    // find the item at index i and set up for extraction and return
+    lval* x = v->cell[i];
+
+    // Shift memory after the item at index i
+    memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count-i-1));
+
+    // Decrement the list's item count
+    v->count--;
+
+    // Reallocate memory
+    v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+    
+    // Return the extracted value
+    return x;
+}
+
+// This function is similar to lval_pop() but deletes the list it has extracted the element from, this is like taking an element from the list and deleting the rest. It's only a slight variation on lval_pop() but will improve readibility in some other parts of the program
+lval* lval_take(lval* v, int i) {
+    lval* x = lval_pop(v, i);
+    lval_del(v);
+    return x;
+}
+
+// This function takes a single lval* representing a list of all the arguments to operate on. First it checks that all the input arguments are numbers, it then iterates through the arguments, popping and operating on each and returns the new expressio
+lval* builtin_op(lval* a, char *op) {
+    // Ensure all arguments are numbers, if not then return an error
+    for (int i = 0; i < a->count; i++) {
+	if (a->cell[i]->type != LVAL_NUM) {
+	    lval_del(a);
+	    return lval_err("Cannot operate on a non-number");
+	}
+    }
+
+    // Pop the first element
+    lval* x = lval_pop(a, 0);
+
+    // If there are no more sub-expressions and the operator is subtraction, perform unary negation on the first number
+    if ((strcmp(op, "-") == 0) && a->count == 0) {
+	x->num = -x->num;
+    }
+
+    // While there are still arguments remaining in the list
+    while (a->count > 0) {
+	// Pop the next element
+	lval* y = lval_pop(a, 0);
+
+	if (strcmp(op, "+") == 0) { x->num += y->num; }
+	if (strcmp(op, "-") == 0) { x->num -= y->num; }
+	if (strcmp(op, "*") == 0) { x->num *= y->num; }
+	if (strcmp(op, "/") == 0) {
+	    if (y->num == 0) {
+		lval_del(x); lval_del(y);
+		x = lval_err("Division by zero"); break;
+	    }
+	    x->num /= y->num;
+	}
+	lval_del(y);
+    }
+    lval_del(a); return x;
+}
+
+lval* lval_eval_sexpr(lval* v) {
+    // Evaluate all children of the S-Expression
+    for (int i = 0; i < v->count; i++) {
+	v->cell[i] = lval_eval(v->cell[i]);
+    }
+
+    // If any of the S-Expression's children are errors, we return the first one we find
+    for (int i = 0; i < v-> count; i++) {
+	    if (v->cell[i]->type == LVAL_ERR) { return lval_take(v, i); }
+    }
+
+    // If the S-Expression has no children, corresponding to the empty expression denoted by (),  we return it directly
+    if (v->count == 0) { return v; }
+
+    // If there is an expression with only one child, e.g. (5), we return the single expression contained within the parenthesis
+    if (v->count == 1) { return lval_take(v, 0); }
+
+    // If none of the above cases apply, we know we have a valid expression with more than one child. In this case we separate the first element of the expression using lval_pop(), check if this is a symbol. If it's a symbol, we check which one it is and pass it to builtin_op() along with the arguments. If none of this applies because the first element is not a symbol, we delete it and will return an error
+    lval* f = lval_pop(v, 0);
+    if (f->type != LVAL_SYM) {
+	lval_del(f); lval_del(v);
+	return lval_err("S-Expression does not start with a symbol");
+    }
+    
+    // Call builtin with operator
+    lval* result = builtin_op(v, f->sym);
+    lval_del(f);
+    return result;
+}
+
+lval* lval_eval(lval* v) {
+    // Evaluate S-Expressions
+    if (v->type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
+    // All other lval types will remain unchanged
+    return v;
+}
+
 int main(int argc, char** argv) {
     (void)argc; // avoid warnings about unused parameters
     (void)argv; // avoid warnings about unused parameters
@@ -194,7 +297,7 @@ int main(int argc, char** argv) {
 	    // if successful, an internal structure is copied into r's output field
 	    /* On Success Print the AST */
 	    // mpc_ast_print(r.output); // we can print out the structure with this command
-	    lval* x = lval_read(r.output);
+	    lval* x = lval_eval(lval_read(r.output));
 	    lval_println(x);
 	    lval_del(x);
 	} else {
